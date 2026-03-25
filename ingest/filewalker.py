@@ -11,8 +11,9 @@ This reduces noise, improves RAG accuracy, and protects the embedding model from
 
 import os
 from pathlib import Path
-from typing import List, Generator
+from typing import List, Generator, Optional
 import fnmatch
+from settings import get_settings
 
 BINARY_EXTS = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp",
@@ -22,6 +23,7 @@ BINARY_EXTS = {
     ".so", ".dll", ".dylib",
     ".pdf"
 }
+DEFAULT_INTERNAL_IGNORES = [".git/", ".code_geassistant_cache/"]
 
 def load_gitignore_patterns(workspace_path: str) -> List[str]:
     """
@@ -96,15 +98,19 @@ def is_binary_file(path: str) -> bool:
 
     return False
 
-def walk_files(workspace_path: str, extra_ignores: List[str] = []) -> Generator[dict, None, None]:
+def walk_files(
+    workspace_path: str,
+    extra_ignores: Optional[List[str]] = None,
+) -> Generator[dict, None, None]:
     """
     Recursively walk workspace and yield text file info.
     Yields: { path, rel_path, ext, size }
     """
     workspace_path = Path(workspace_path).resolve()
+    settings = get_settings()
 
     gitignore_patterns = load_gitignore_patterns(workspace_path)
-    all_ignores = gitignore_patterns + extra_ignores
+    all_ignores = DEFAULT_INTERNAL_IGNORES + gitignore_patterns + (extra_ignores or [])
 
     for root, dirs, files in os.walk(workspace_path):
         # Filter directories that should be ignored
@@ -129,10 +135,9 @@ def walk_files(workspace_path: str, extra_ignores: List[str] = []) -> Generator[
             if is_binary_file(full_path):
                 continue
 
-            # Skip huge files (> 2MB)
-            # Todo: Make it configurable
+            # Skip huge files
             size = os.path.getsize(full_path)
-            if size > 2 * 1024 * 1024:
+            if size > settings.max_file_size_bytes:
                 continue
 
             ext = full_path.suffix.lower()

@@ -7,11 +7,11 @@
 from pathlib import Path
 from typing import List, Dict, Any
 import chromadb
-from sentence_transformers import SentenceTransformer
+from settings import get_settings
 
-
-DEFAULT_CHROMA_DIR = "./chroma_db"
-DEFAULT_MODEL = "all-MiniLM-L6-v2"
+_settings = get_settings()
+DEFAULT_CHROMA_DIR = _settings.chroma_dir
+DEFAULT_MODEL = _settings.embedding_model
 
 
 class CodeRetriever:
@@ -28,16 +28,15 @@ class CodeRetriever:
         chroma_dir: str = DEFAULT_CHROMA_DIR,
         model_name: str = DEFAULT_MODEL,
     ):
+        from sentence_transformers import SentenceTransformer
+
         self.chroma_dir = chroma_dir
         self.client = chromadb.PersistentClient(path=chroma_dir)
-        self.model = SentenceTransformer(model_name, local_files_only=True)
+        self.model = SentenceTransformer(model_name, local_files_only=False)
 
     def get_collection(self, name: str):
-        """Load or create collection."""
-        return self.client.get_or_create_collection(
-            name=name,
-            metadata={"hnsw:space": "cosine"}
-        )
+        """Load existing collection."""
+        return self.client.get_collection(name=name)
 
     def embed_text(self, text: str):
         """Return embedding vector (as Python list)."""
@@ -48,7 +47,8 @@ class CodeRetriever:
         self,
         collection_name: str,
         query: str,
-        k: int = 8
+        k: int = 8,
+        metadata_filter: Dict[str, Any] | None = None,
     ) -> List[Dict[str, Any]]:
         """
         Search for the top-k most relevant chunks for a query.
@@ -59,11 +59,15 @@ class CodeRetriever:
 
         # Chroma 0.5+ `query` API:
         # returns: { "ids": [], "distances": [], "documents": [], "metadatas": [] }
-        results = coll.query(
-            query_embeddings=[q_emb],
-            n_results=k,
-            include=["documents", "metadatas", "distances"]
-        )
+        query_kwargs = {
+            "query_embeddings": [q_emb],
+            "n_results": k,
+            "include": ["documents", "metadatas", "distances"],
+        }
+        if metadata_filter:
+            query_kwargs["where"] = metadata_filter
+
+        results = coll.query(**query_kwargs)
 
         docs = results["documents"][0]
         metas = results["metadatas"][0]

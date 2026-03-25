@@ -1,341 +1,286 @@
-# Code Geassistant 𓆩𓆪
+﻿# Code Geassistant
 
-A RAG-powered codebase assistant that helps you understand and navigate large codebases using natural language queries. Built with FastAPI, ChromaDB, and local LLMs (Ollama/llama.cpp).
+Local-first codebase intelligence for large multi-service systems.
 
-## Features
+Code Geassistant ingests one or more repositories, builds semantic + structured indexes, and answers:
 
-- **Semantic Code Search** - Find code by meaning, not just keywords
-- **Natural Language Q&A** - Ask questions about your codebase in plain English
-- **Smart Chunking** - Automatic code splitting with overlap for context preservation
-- **Gitignore-Aware** - Respects your .gitignore patterns automatically
-- **Fast Embeddings** - Powered by sentence-transformers
-- **Local LLMs** - Works with Ollama or llama.cpp (no API keys needed)
-- **Cross-Platform CLI** - Works on Windows, Linux, and macOS
-- **REST API** - Integrate with your own tools
+- General code questions (`qa` mode)
+- Endpoint ownership (`owner_of_endpoint` mode)
+- Service neighbors (`neighbors` mode)
+- Flow traces (`trace_flow` mode)
 
-## Quick Start
+It is designed for day-to-day "where does this API go?" debugging across microservices without running every service locally.
 
-### Prerequisites
+## What You Get
 
-- Python 3.8+
-- [Ollama](https://ollama.ai/) (or llama.cpp)
-- 8GB+ RAM (16GB recommended)
-- Optional: NVIDIA GPU for faster inference
+- FastAPI backend + CLI workflow
+- Incremental indexing (new/changed/deleted file detection)
+- Semantic retrieval with ChromaDB + sentence-transformers
+- Heuristic evidence extraction (routes, outbound calls, messaging)
+- Service graph generation with evidence-backed edges
+- Query modes for flow/ownership analysis
 
-### Installation
+## Repository Layout
+
+- `main.py`: FastAPI app and API endpoints
+- `cli/code_geassistant_cli.py`: operator CLI
+- `ingest/`: file walking, chunking, evidence extraction, graph build, incremental indexing
+- `rag/`: retrieval + prompt pipeline
+- `llm/`: LLM provider adapter (Ollama / llama.cpp)
+- `scripts/`: setup and pipeline helpers
+- `ARCHITECTURE.md`: detailed architecture and phased plan
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md): implementation-level architecture
+- [CONTRIBUTING.md](CONTRIBUTING.md): development and PR guide
+- [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md): pre-release and publish checklist
+
+## Prerequisites
+
+- Python 3.10+
+- Ollama installed and running
+- A pulled local model, e.g.:
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/code-geassistant.git
-cd code-geassistant
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Pull an LLM model (using Ollama)
 ollama pull deepseek-coder:1.3b
 ```
 
-### Basic Usage
+## Quick Setup
+
+## Windows (PowerShell)
+
+```powershell
+# 1) Clone and enter repo
+git clone https://github.com/<your-username>/code-geassistant.git
+cd code-geassistant
+
+# 2) One-command setup (creates .venv + installs deps)
+powershell -ExecutionPolicy Bypass -File scripts/setup.ps1
+
+# 3) Activate env
+.\.venv\Scripts\Activate.ps1
+```
+
+## macOS / Linux
 
 ```bash
-# 1. Start the server
-python code_geassistant_cli.py start
+# 1) Clone and enter repo
+git clone https://github.com/<your-username>/code-geassistant.git
+cd code-geassistant
 
-# 2. Ingest your codebase
-python code_geassistant_cli.py ingest /path/to/your/repository
+# 2) One-command setup (creates .venv + installs deps)
+bash scripts/setup.sh
 
-# 3. Ask questions!
-python code_geassistant_cli.py query workspace_repository "Where is the authentication logic?"
-
-# 4. Stop when done
-python code_geassistant_cli.py stop
+# 3) Activate env
+source .venv/bin/activate
 ```
 
-## CLI Commands
-
-### Server Management
+## First Run (CLI)
 
 ```bash
-# Start the API server
-python code_geassistant_cli.py start
+# Start API server
+python cli/code_geassistant_cli.py start
 
-# Stop the API server
-python code_geassistant_cli.py stop
+# Ingest a repository
+python cli/code_geassistant_cli.py ingest /path/to/repo
+
+# Ask semantic question (qa mode)
+python cli/code_geassistant_cli.py query workspace_repo "Where is authentication implemented?"
 ```
 
-### Workspace Management
+Note: workspace id format is `workspace_<folder-name>`.
+
+## Query Modes
+
+## 1) QA Mode (default)
 
 ```bash
-# Ingest a workspace
-python code_geassistant_cli.py ingest /path/to/repo
-
-# Ingest with custom ignore patterns
-python code_geassistant_cli.py ingest /path/to/repo --ignore "*.test.js" "*.spec.ts"
-
-# List all ingested workspaces
-python code_geassistant_cli.py list
+python cli/code_geassistant_cli.py query workspace_repo "Explain order creation flow"
 ```
 
-### Querying
+## 2) Endpoint Owner Mode
 
 ```bash
-# Basic query
-python code_geassistant_cli.py query workspace_myrepo "Where is authentication implemented?"
-
-# Query with a specific model
-python code_geassistant_cli.py query workspace_myrepo "How does logging work?" --model phi3:mini
-
-# Compare different models
-python code_geassistant_cli.py query workspace_myrepo "Explain the routing" --model qwen2.5-coder:1.5b
+python cli/code_geassistant_cli.py query workspace_repo --mode owner_of_endpoint --method GET --path /orders
 ```
 
-### Cleanup
+## 3) Service Neighbors Mode
 
 ```bash
-# Delete a specific workspace (ChromaDB only)
-python code_geassistant_cli.py cleanup workspace_myrepo
-
-# Delete workspace + cache files
-python code_geassistant_cli.py cleanup workspace_myrepo --cache /path/to/repo
-
-# Delete ALL workspaces (with confirmation)
-python code_geassistant_cli.py cleanup --all
-
-# Nuclear option: delete everything
-python code_geassistant_cli.py cleanup --all --cache /path/to/repo
+python cli/code_geassistant_cli.py query workspace_repo --mode neighbors --service orders --direction both
 ```
 
-## Architecture
-
-```
-┌─────────────────┐
-│   User Query    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  FastAPI Server │
-└────────┬────────┘
-         │
-         ├─────────────────┐
-         │                 │
-         ▼                 ▼
-┌─────────────────┐  ┌─────────────────┐
-│   Code Chunker  │  │   ChromaDB      │
-│  (File Walker)  │  │  (Vector Store) │
-└─────────────────┘  └─────────────────┘
-         │                 │
-         ▼                 ▼
-┌─────────────────┐  ┌─────────────────┐
-│  Sentence       │  │   Code          │
-│  Transformers   │  │   Retriever     │
-└─────────────────┘  └─────────────────┘
-                           │
-                           ▼
-                     ┌─────────────────┐
-                     │  LLM Adapter    │
-                     │  (Ollama/llama) │
-                     └─────────────────┘
-```
-
-### Components
-
-- **File Walker** - Discovers source files, respects .gitignore, filters binaries
-- **Chunker** - Splits files into 80-line chunks with 20-line overlap
-- **Embedder** - Converts chunks to vectors using `all-MiniLM-L6-v2`
-- **ChromaDB** - Persistent vector database for semantic search
-- **Retriever** - Fetches top-k relevant chunks for queries
-- **LLM Adapter** - Unified interface for Ollama/llama.cpp models
-
-## Configuration
-
-### Using Different Models
-
-**You don't need to edit code!** Just pass the model name:
+## 4) Flow Trace Mode
 
 ```bash
-# CLI
-python code_geassistant_cli.py query workspace_repo "Question?" --model phi3:mini
-
-# Test script
-./test_pipeline.sh /path/to/repo "Question?" "qwen2.5-coder:1.5b"
-
-# API
-curl -X POST http://localhost:8000/query \
-  -d '{"workspace_id": "workspace_repo", "model": "phi3:mini", "question": "..."}'
+python cli/code_geassistant_cli.py query workspace_repo --mode trace_flow --service orders --trace-depth 3
 ```
 
-### Changing the Default Model
-
-**Only needed if you want a different default** when no model is specified.
-
-Edit `main.py`:
-
-```python
-pipeline = RAGPipeline(
-    chroma_dir="./chroma_db",
-    model_provider="ollama",
-    model_name="qwen2.5-coder:1.5b",  # Change default here
-    top_k=6,
-)
-```
-
-### Adjusting Chunk Size
-
-Edit `ingest/chunker.py`:
-
-```python
-DEFAULT_CHUNK_LINES = 80    # Lines per chunk
-DEFAULT_OVERLAP_LINES = 20  # Overlap between chunks
-```
-
-### Tuning Retrieval
-
-Edit `main.py`:
-
-```python
-pipeline = RAGPipeline(
-    chroma_dir="./chroma_db",
-    model_provider="ollama",
-    model_name="deepseek-coder:1.3b",
-    top_k=6,  # Number of chunks to retrieve (3-10 recommended)
-)
-```
-
-## Performance
-
-**Benchmark Environment**: Lenovo ThinkPad P53, i7-9850H, 32GB RAM, CPU-only
-
-| Operation | Time | Notes |
-|-----------|------|-------|
-| API Startup | 3-5s
-| Codebase Ingestion (medium) | 18-30s | One-time per workspace |
-| Query Execution (CPU) | 45-55s | With k=6, deepseek-coder:1.3b |
-
-### Optimization Tips
-
-**For CPU-only setups:**
-- Use smaller models: `phi3:mini`, `qwen2.5-coder:1.5b`
-- Reduce `top_k` to 3-4 (may affect answer quality)
-- Reduce `max_tokens` in `llm_adapter.py`
-
-**For GPU acceleration:**
-1. Install NVIDIA proprietary drivers:
-   ```bash
-   sudo ubuntu-drivers autoinstall
-   sudo reboot
-   ```
-2. Verify with `nvidia-smi`
-3. Queries will be ~10x faster!
-
-## Testing
-
-Run the full pipeline test:
+You can also trace by endpoint anchor:
 
 ```bash
-# Linux/Mac
-./test_pipeline.sh /path/to/repo "Where is authentication?"
+python cli/code_geassistant_cli.py query workspace_repo --mode trace_flow --method GET --path /orders
+```
 
+## Useful Filters (QA mode)
+
+```bash
+python cli/code_geassistant_cli.py query workspace_repo "Where are order APIs?" --service orders --language java --symbol-type endpoint_handler
+```
+
+Supported optional filters:
+
+- `--repo`
+- `--service`
+- `--language`
+- `--symbol-type`
+- `--symbol-name`
+
+## Graph Commands
+
+```bash
+# Graph stats
+python cli/code_geassistant_cli.py graph workspace_repo
+
+# Neighbors (graph endpoint wrapper)
+python cli/code_geassistant_cli.py neighbors workspace_repo orders --direction both
+
+# Endpoint owners (graph endpoint wrapper)
+python cli/code_geassistant_cli.py owners workspace_repo GET /orders
+```
+
+## Incremental Indexing
+
+Ingestion is incremental by default.
+
+Per run, the system computes file fingerprints and classifies files as:
+
+- `new`
+- `changed`
+- `deleted`
+- `unchanged`
+
+Behavior:
+
+- Re-chunks/re-extracts only `new/changed` files
+- Removes vectors for `changed/deleted` files from Chroma
+- Reuses cache records for `unchanged` files
+- Rebuilds service graph from latest evidence
+
+Cache artifacts (inside target workspace):
+
+- `.code_geassistant_cache/chunks.jsonl`
+- `.code_geassistant_cache/evidence.jsonl`
+- `.code_geassistant_cache/service_graph.json`
+- `.code_geassistant_cache/index_manifest.json`
+
+## Environment Configuration
+
+Copy `.env.example` to `.env` (optional), then override as needed.
+
+Key variables:
+
+- `CGA_CHROMA_DIR`
+- `CGA_DEFAULT_LLM_MODEL`
+- `CGA_TOP_K`
+- `CGA_EMBEDDING_MODEL`
+- `CGA_CHUNK_LINES`
+- `CGA_OVERLAP_LINES`
+- `CGA_MAX_FILE_SIZE_BYTES`
+
+All config defaults are centralized in `settings.py`.
+
+## API Endpoints
+
+Base URL: `http://127.0.0.1:8000`
+
+- `GET /health`
+- `POST /ingest/start`
+- `GET /ingest/status/{job_id}`
+- `GET /workspaces`
+- `POST /query`
+- `GET /graph/{workspace_id}`
+- `GET /graph/{workspace_id}/neighbors?service=<name>&direction=both`
+- `POST /graph/owners`
+
+Swagger docs: `http://127.0.0.1:8000/docs`
+
+## Development
+
+Install dev deps and run tests:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+Run a full local developer check:
+
+```bash
 # Windows
-test_pipeline.bat C:\path\to\repo "Where is authentication?"
+powershell -ExecutionPolicy Bypass -File scripts/dev-check.ps1
 
-# With custom model
-./test_pipeline.sh /path/to/repo "Where is auth?" "phi3:mini"
+# macOS/Linux
+bash scripts/dev-check.sh
 ```
 
+## CI
 
-## API Reference
+GitHub Actions workflow is defined at:
 
-The REST API runs on `http://localhost:8000` by default.
+- `.github/workflows/ci.yml`
 
-### Endpoints
+It runs `pytest` on Python 3.10 and 3.11 using `requirements-ci.txt`.
 
-#### `GET /health`
-Health check endpoint.
+## Troubleshooting
 
-#### `POST /ingest/start`
-Start ingesting a workspace.
-```json
-{
-  "workspace_path": "/path/to/repo",
-  "ignore_patterns": ["*.test.js"]  // optional
-}
+## 1) `ImportError: cached_download` from `sentence_transformers`
+
+Dependency pins in `requirements*.txt` already fix this (`huggingface-hub==0.25.2`).
+Recreate venv if needed:
+
+```bash
+# Windows
+rmdir /s /q .venv
+powershell -ExecutionPolicy Bypass -File scripts/setup.ps1
+
+# macOS/Linux
+rm -rf .venv
+bash scripts/setup.sh
 ```
 
-#### `GET /ingest/status/{job_id}`
-Check ingestion status.
+## 2) `workspace_not_found` on query
 
-#### `GET /workspaces`
-List all ingested workspaces.
+Run ingest first and confirm workspace name:
 
-#### `POST /query`
-Query a workspace.
-```json
-{
-  "workspace_id": "workspace_myrepo",
-  "question": "Where is authentication?",
-  "model": "phi3:mini"  // optional
-}
+```bash
+python cli/code_geassistant_cli.py list
 ```
 
-### Interactive API Docs
+## 3) Graph endpoints return `graph_not_found`
 
-Visit `http://localhost:8000/docs` for Swagger UI.
+Graph index is registered on ingest completion. Re-ingest target workspace once.
 
-## Contributing
+## 4) Slow query performance
 
-Contributions are welcome! Areas for improvement:
+- Use smaller LLM (`phi3:mini`, etc.)
+- Reduce `CGA_TOP_K`
+- Ensure Ollama model is already pulled and warm
 
-- [ ] Streaming responses (SSE)
-- [ ] Re-ranking layer (cross-encoder)
-- [ ] Hybrid search (semantic + BM25)
-- [ ] AST-aware chunking (tree-sitter)
-- [ ] Multi-workspace queries
-- [ ] Query history and caching
-- [ ] Docker support
-- [ ] Web UI (Streamlit/Gradio)
+## Cleanup
 
-## Roadmap
+```bash
+# Delete one workspace from Chroma
+python cli/code_geassistant_cli.py cleanup workspace_repo
 
-### V1 (Current)
-- ✅ Core RAG pipeline
-- ✅ CLI interface
-- ✅ REST API
-- ✅ Ollama/llama.cpp support
-- ✅ Cross-platform support
+# Delete all workspaces (with confirmation)
+python cli/code_geassistant_cli.py cleanup --all
 
-### V2 (Planned)
-- [ ] GPU optimization
-- [ ] Streaming responses
-- [ ] Query caching
-- [ ] Re-ranking
-- [ ] Web UI
-- [ ] Docker images
-- [ ] Incremental updates
-
-### V3 (Future)
-- [ ] Multi-modal support (images, diagrams)
-- [ ] Code generation
-- [ ] PR review assistant
-- [ ] VSCode extension
+# Also remove a workspace cache folder
+python cli/code_geassistant_cli.py cleanup workspace_repo --cache /path/to/repo
+```
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- [ChromaDB](https://www.trychroma.com/) - Vector database
-- [Sentence Transformers](https://www.sbert.net/) - Embedding models
-- [Ollama](https://ollama.ai/) - Local LLM inference
-- [FastAPI](https://fastapi.tiangolo.com/) - API framework
-
-## Contact
-
-**Ashutosh Mishra**
-- GitHub: [@AshutoshIWNL](https://github.com/AshutoshIWNL)
-
----
-
-**Star this repo** if you find it helpful!
+MIT. See [LICENSE](LICENSE).

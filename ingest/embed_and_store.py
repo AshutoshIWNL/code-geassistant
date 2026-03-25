@@ -10,15 +10,19 @@ import argparse
 import uuid
 import math
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 import chromadb
 
 
 DEFAULT_CHROMA_DIR = "./chroma_db"
+
+
+def get_sentence_transformer_class():
+    from sentence_transformers import SentenceTransformer
+    return SentenceTransformer
 
 
 def load_chunks_jsonl(chunks_path: Path) -> List[Dict[str, Any]]:
@@ -46,6 +50,11 @@ def chunk_to_doc_and_meta(chunk: Dict[str, Any]):
         "end_line": chunk.get("end_line"),
         "n_lines": chunk.get("n_lines"),
         "est_tokens": chunk.get("est_tokens"),
+        "repo": chunk.get("repo"),
+        "service": chunk.get("service"),
+        "language": chunk.get("language"),
+        "symbol_type": chunk.get("symbol_type"),
+        "symbol_name": chunk.get("symbol_name"),
     }
     return text, meta
 
@@ -64,14 +73,11 @@ def persist_embeddings(
     collection_name: str | None,
     model_name: str,
     batch_size: int,
+    encode_batch_size: int = 32,
+    include_rel_paths: Optional[List[str]] = None,
+    delete_rel_paths: Optional[List[str]] = None,
 ):
-    # 1. Read chunks
-    chunks = load_chunks_jsonl(chunks_file)
-    if not chunks:
-        print("No chunks found. Exiting.")
-        return
-
-    # 2. Create Chroma persistent client (NEW API)
+    # 1. Create Chroma persistent client (NEW API)
     client = chromadb.PersistentClient(path=chroma_dir)
 
     coll_name = make_collection_name(workspace_path, collection_name)
@@ -80,13 +86,31 @@ def persist_embeddings(
         metadata={"hnsw:space": "cosine"}  # cosine similarity (default)
     )
 
+    # 2. Delete stale vectors for changed/deleted files
+    to_delete = sorted(set((include_rel_paths or []) + (delete_rel_paths or [])))
+    for rel in to_delete:
+        try:
+            collection.delete(where={"rel_path": rel})
+        except Exception:
+            pass
+
+    # 3. Read chunks
+    chunks = load_chunks_jsonl(chunks_file)
+    if include_rel_paths is not None:
+        includes = set(include_rel_paths)
+        chunks = [c for c in chunks if c.get("rel_path") in includes]
+    if not chunks:
+        print("No chunks selected for embedding. Exiting.")
+        return
+
     print(f"Chroma DB Path   : {chroma_dir}")
     print(f"Collection Name  : {coll_name}")
     print(f"Total Chunks     : {len(chunks)}")
 
-    # 3. Load embedding model
+    # 4. Load embedding model
     print(f"Loading embedding model: {model_name}")
-    model = SentenceTransformer(model_name)
+    model_cls = get_sentence_transformer_class()
+    model = model_cls(model_name)
 
     total = len(chunks)
     batches = math.ceil(total / batch_size)
@@ -110,12 +134,12 @@ def persist_embeddings(
             metas.append(meta)
             ids.append(vec_id)
 
-        # 4. Embed
-        emb = model.encode(docs, batch_size=32, show_progress_bar=False)
-        emb = emb.tolist()
+        # 5. Embed
+        emb = model.encode(docs, batch_size=encode_batch_size, show_progress_bar=False)
+        emb = emb.tolist() if hasattr(emb, "tolist") else emb
 
-        # 5. Insert into Chroma (NEW API)
-        collection.add(
+        # 6. Insert/update into Chroma (idempotent for re-ingestion)
+        collection.upsert(
             ids=ids,
             embeddings=emb,
             documents=docs,
@@ -134,8 +158,11 @@ def main():
     parser.add_argument("workspace_path")
     parser.add_argument("--collection", default=None)
     parser.add_argument("--batch", type=int, default=64)
+    parser.add_argument("--encode-batch", type=int, default=32)
     parser.add_argument("--chroma-dir", default=DEFAULT_CHROMA_DIR)
     parser.add_argument("--model", default="all-MiniLM-L6-v2")
+    parser.add_argument("--include-rel-path", action="append", default=None)
+    parser.add_argument("--delete-rel-path", action="append", default=None)
     args = parser.parse_args()
 
     ws = Path(args.workspace_path).resolve()
@@ -149,6 +176,9 @@ def main():
         collection_name=args.collection,
         model_name=args.model,
         batch_size=args.batch,
+        encode_batch_size=args.encode_batch,
+        include_rel_paths=args.include_rel_path,
+        delete_rel_paths=args.delete_rel_path,
     )
 
 

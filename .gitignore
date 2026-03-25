@@ -67,6 +67,7 @@ chroma_db/
 *.log
 /tmp/
 .code_geassistant_cache/
+.code_geassistant_server.pid
 
 # OS
 .DS_Store

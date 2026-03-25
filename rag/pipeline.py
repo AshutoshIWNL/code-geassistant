@@ -8,6 +8,7 @@
 
 from ingest.retriever import CodeRetriever
 from llm.llm_adapter import LLMAdapter
+from typing import Optional, Dict, Any
 
 
 class RAGPipeline:
@@ -22,7 +23,13 @@ class RAGPipeline:
         self.llm = LLMAdapter(provider=model_provider, model=model_name)
         self.top_k = top_k
 
-    def answer_query(self, collection_name: str, question: str) -> dict:
+    def answer_query(
+        self,
+        collection_name: str,
+        question: str,
+        model_name: Optional[str] = None,
+        metadata_filter: Optional[Dict[str, Any]] = None,
+    ) -> dict:
         """
         1. Retrieve top-k context chunks
         2. Build full prompt
@@ -30,13 +37,22 @@ class RAGPipeline:
         4. Return answer + source metadata
         """
         # 1. retrieve chunks
-        chunks = self.retriever.retrieve(collection_name, question, k=self.top_k)
+        chunks = self.retriever.retrieve(
+            collection_name,
+            question,
+            k=self.top_k,
+            metadata_filter=metadata_filter,
+        )
 
         # 2. build prompt
         prompt = self.retriever.build_context_prompt(chunks, question)
 
         # 3. call LLM
-        answer = self.llm.generate(prompt)
+        llm = self.llm
+        if model_name and model_name != self.llm.model:
+            llm = LLMAdapter(provider=llm.provider, model=model_name)
+
+        answer = llm.generate(prompt)
 
         # 4. return answer and references
         sources = [
@@ -45,11 +61,17 @@ class RAGPipeline:
                 "start_line": c["metadata"]["start_line"],
                 "end_line": c["metadata"]["end_line"],
                 "score": c["score"],
+                "repo": c["metadata"].get("repo"),
+                "service": c["metadata"].get("service"),
+                "language": c["metadata"].get("language"),
+                "symbol_type": c["metadata"].get("symbol_type"),
+                "symbol_name": c["metadata"].get("symbol_name"),
             }
             for c in chunks
         ]
 
         return {
             "answer": answer,
-            "sources": sources
+            "sources": sources,
+            "model_used": llm.model,
         }
