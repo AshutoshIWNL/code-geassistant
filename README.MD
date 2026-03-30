@@ -52,7 +52,7 @@ ollama pull deepseek-coder:1.3b
 
 ```powershell
 # 1) Clone and enter repo
-git clone https://github.com/<your-username>/code-geassistant.git
+git clone https://github.com/AshutoshIWNL/code-geassistant.git
 cd code-geassistant
 
 # 2) One-command setup (creates .venv + installs deps)
@@ -66,7 +66,7 @@ powershell -ExecutionPolicy Bypass -File scripts/setup.ps1
 
 ```bash
 # 1) Clone and enter repo
-git clone https://github.com/<your-username>/code-geassistant.git
+git clone https://github.com/AshutoshIWNL/code-geassistant.git
 cd code-geassistant
 
 # 2) One-command setup (creates .venv + installs deps)
