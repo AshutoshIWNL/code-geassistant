@@ -95,6 +95,19 @@ Note: workspace id format is `workspace_<folder-name>`.
 
 For a product with many Java microservices, use a workspace manifest so each teammate can ingest all services with one command.
 
+Preflight checks (run before bootstrap):
+
+```bash
+# Python version
+python --version
+
+# Ollama availability
+ollama --version
+
+# Confirm target model is available locally
+ollama list
+```
+
 ```bash
 # 1) Create your manifest from template
 # Windows (PowerShell):
@@ -109,6 +122,21 @@ python cli/code_geassistant_cli.py ingest-many .code_geassistant_workspaces.txt
 
 # Optional: one-command bootstrap (start server + ingest-many + list)
 python cli/code_geassistant_cli.py bootstrap .code_geassistant_workspaces.txt
+```
+
+Expected first-run time:
+
+- For many services, first ingest can take several minutes (sometimes longer on CPU-only laptops).
+- Incremental re-ingest is much faster because unchanged files are skipped.
+
+First-success validation:
+
+```bash
+# Confirm workspaces were created
+python cli/code_geassistant_cli.py list
+
+# Run one real query against a listed workspace id
+python cli/code_geassistant_cli.py query workspace_orders-service "List major REST endpoints and owning service"
 ```
 
 Manifest format:
