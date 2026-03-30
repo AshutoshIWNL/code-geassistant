@@ -1,0 +1,16 @@
+# One repository path per line.
+# Blank lines and comments are ignored.
+#
+# Copy this file to .code_geassistant_workspaces.txt and replace entries.
+# You can mix absolute and relative paths.
+#
+# Example (Windows):
+# C:\repos\product\orders-service
+# C:\repos\product\payments-service
+#
+# Example (macOS/Linux):
+# /repos/product/orders-service
+# /repos/product/payments-service
+
+../orders-service
+../payments-service

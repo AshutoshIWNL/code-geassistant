@@ -91,6 +91,32 @@ python cli/code_geassistant_cli.py query workspace_repo "Where is authentication
 
 Note: workspace id format is `workspace_<folder-name>`.
 
+## Team Rollout (Many Microservices)
+
+For a product with many Java microservices, use a workspace manifest so each teammate can ingest all services with one command.
+
+```bash
+# 1) Create your manifest from template
+# Windows (PowerShell):
+Copy-Item .code_geassistant_workspaces.example.txt .code_geassistant_workspaces.txt
+# macOS/Linux:
+cp .code_geassistant_workspaces.example.txt .code_geassistant_workspaces.txt
+
+# 2) Edit .code_geassistant_workspaces.txt and list service repo paths (one per line)
+
+# 3) Ingest all listed repos
+python cli/code_geassistant_cli.py ingest-many .code_geassistant_workspaces.txt
+
+# Optional: one-command bootstrap (start server + ingest-many + list)
+python cli/code_geassistant_cli.py bootstrap .code_geassistant_workspaces.txt
+```
+
+Manifest format:
+
+- One repository path per line
+- Empty lines are ignored
+- Lines starting with `#` are treated as comments
+
 ## Query Modes
 
 ## 1) QA Mode (default)

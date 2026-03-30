@@ -209,6 +209,94 @@ def ingest_workspace(workspace_path: str, ignore_patterns: Optional[list] = None
         return None
 
 
+def load_workspace_manifest(manifest_path: str) -> list[str]:
+    """
+    Read workspace paths from a manifest file.
+
+    Rules:
+    - one path per line
+    - blank lines ignored
+    - lines starting with '#' ignored
+    - relative paths resolved from current working directory
+    """
+    manifest = Path(manifest_path).resolve()
+    if not manifest.exists() or not manifest.is_file():
+        raise FileNotFoundError(f"Manifest not found: {manifest}")
+
+    workspaces = []
+    for raw in manifest.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        workspaces.append(str(Path(line).expanduser().resolve()))
+
+    if not workspaces:
+        raise ValueError(f"No workspace paths found in manifest: {manifest}")
+
+    return workspaces
+
+
+def ingest_many(manifest_path: str, ignore_patterns: Optional[list] = None):
+    """Ingest all workspace paths listed in a manifest file."""
+    try:
+        workspaces = load_workspace_manifest(manifest_path)
+    except Exception as e:
+        error(str(e))
+        return False
+
+    if not check_server():
+        warning("Server not running. Starting it...")
+        if not start_server():
+            return False
+
+    log(f"Loaded {len(workspaces)} workspace(s) from manifest")
+    results = {"ok": [], "failed": []}
+
+    for index, workspace in enumerate(workspaces, 1):
+        print()
+        log(f"[{index}/{len(workspaces)}] Ingesting {workspace}")
+        job_id = ingest_workspace(workspace, ignore_patterns)
+        if job_id:
+            results["ok"].append(workspace)
+        else:
+            results["failed"].append(workspace)
+
+    print()
+    success(f"Ingest-many finished: success={len(results['ok'])} failed={len(results['failed'])}")
+    if results["failed"]:
+        warning("Failed workspaces:")
+        for path in results["failed"]:
+            print(f"  - {path}")
+        return False
+    return True
+
+
+def bootstrap(manifest_path: str, ignore_patterns: Optional[list] = None):
+    """
+    One-command team bootstrap:
+    - ensure server is running
+    - ingest all repos from manifest
+    - list available workspaces
+    """
+    log("Running bootstrap workflow")
+
+    if not check_server():
+        warning("Server not running. Starting it...")
+        if not start_server():
+            return False
+    else:
+        success("Server already running")
+
+    if not ingest_many(manifest_path, ignore_patterns):
+        error("Bootstrap failed during ingest-many")
+        return False
+
+    print()
+    log("Workspace inventory after bootstrap:")
+    workspaces = list_workspaces()
+    return len(workspaces) >= 0
+
+
 def list_workspaces():
     """List all available workspaces"""
     try:
@@ -496,6 +584,12 @@ Examples:
   # Ingest a workspace
   python cli/code_geassistant_cli.py ingest /path/to/repo
 
+  # Ingest many workspaces from a manifest
+  python cli/code_geassistant_cli.py ingest-many .code_geassistant_workspaces.txt
+
+  # Bootstrap (start + ingest-many + list)
+  python cli/code_geassistant_cli.py bootstrap .code_geassistant_workspaces.txt
+
   # List workspaces
   python cli/code_geassistant_cli.py list
 
@@ -534,6 +628,19 @@ Examples:
     ingest_parser = subparsers.add_parser("ingest", help="Ingest a workspace")
     ingest_parser.add_argument("workspace", help="Path to workspace directory")
     ingest_parser.add_argument("--ignore", nargs="+", help="Additional ignore patterns")
+
+    # Ingest many command
+    ingest_many_parser = subparsers.add_parser("ingest-many", help="Ingest workspaces listed in a manifest file")
+    ingest_many_parser.add_argument("manifest", help="Path to manifest file (one workspace path per line)")
+    ingest_many_parser.add_argument("--ignore", nargs="+", help="Additional ignore patterns")
+
+    # Bootstrap command
+    bootstrap_parser = subparsers.add_parser(
+        "bootstrap",
+        help="Start server, ingest many workspaces from manifest, then list workspaces",
+    )
+    bootstrap_parser.add_argument("manifest", help="Path to manifest file (one workspace path per line)")
+    bootstrap_parser.add_argument("--ignore", nargs="+", help="Additional ignore patterns")
     
     # List command
     subparsers.add_parser("list", help="List available workspaces")
@@ -595,6 +702,16 @@ Examples:
             if not start_server():
                 sys.exit(1)
         ingest_workspace(args.workspace, args.ignore)
+
+    elif args.command == "ingest-many":
+        ok = ingest_many(args.manifest, args.ignore)
+        if not ok:
+            sys.exit(1)
+
+    elif args.command == "bootstrap":
+        ok = bootstrap(args.manifest, args.ignore)
+        if not ok:
+            sys.exit(1)
     
     elif args.command == "list":
         if not check_server():
